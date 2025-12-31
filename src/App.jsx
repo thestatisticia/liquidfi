@@ -12,6 +12,8 @@ function App() {
           <Route path="/streams" element={<StreamFiDapp defaultTab="my-streams" />} />
           <Route path="/claim" element={<StreamFiDapp defaultTab="claim" />} />
           <Route path="/analytics" element={<StreamFiDapp defaultTab="analytics" />} />
+          <Route path="/buy-sell" element={<StreamFiDapp defaultTab="buy-sell" />} />
+          <Route path="/admin" element={<StreamFiDapp defaultTab="admin" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

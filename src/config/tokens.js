@@ -15,6 +15,13 @@ export const TOKEN_CONFIG = {
   }
 }
 
+// OnRampOffRamp contract address
+// Deployed on Ethereum Sepolia: 0x36Ae60Ba7Bb2Fe8106DF765F0729842aa06152e9
+// Can be overridden via VITE_ONRAMP_OFFRAMP_CONTRACT environment variable
+export const getOnRampOffRampContractAddress = () => {
+  return import.meta.env.VITE_ONRAMP_OFFRAMP_CONTRACT || '0x36Ae60Ba7Bb2Fe8106DF765F0729842aa06152e9';
+}
+
 // Get active token config
 export const getActiveTokenConfig = () => {
   return TOKEN_CONFIG.testStablecoin

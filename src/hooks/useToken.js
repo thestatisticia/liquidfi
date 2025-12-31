@@ -338,6 +338,42 @@ export function useToken() {
     return getTokenConfig()
   }
 
+  // Check for existing wallet connection on mount
+  useEffect(() => {
+    const checkExistingConnection = async () => {
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          const accounts = await window.ethereum.request({
+            method: 'eth_accounts'
+          })
+          
+          if (accounts.length > 0) {
+            // Wallet is already connected, initialize connection state
+            const provider = new ethers.BrowserProvider(window.ethereum)
+            const signer = await provider.getSigner()
+            const address = await signer.getAddress()
+            const network = await provider.getNetwork()
+
+            setProvider(provider)
+            setSigner(signer)
+            setAccount(address)
+            setChainId(Number(network.chainId))
+            setIsConnected(true)
+
+            // Load token info and balance
+            await loadTokenInfo(provider)
+            await loadBalance(provider, address)
+          }
+        } catch (err) {
+          console.error('Error checking existing connection:', err)
+        }
+      }
+    }
+
+    checkExistingConnection()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Listen for account and chain changes
   useEffect(() => {
     if (typeof window.ethereum !== 'undefined') {

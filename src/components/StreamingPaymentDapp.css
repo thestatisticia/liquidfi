@@ -187,7 +187,7 @@
 }
 
 .section-header h2 {
-  font-size: 2.25rem;
+  font-size: 2.75rem;
   font-family: var(--font-display);
   font-weight: 700;
   color: var(--text-primary);
@@ -198,13 +198,14 @@
 /* Create Stream Form */
 .create-stream {
   background: var(--bg-card);
-  padding: 3rem;
+  padding: 4rem;
   border-radius: var(--radius-xl);
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(10px);
-  max-width: 900px;
+  max-width: 1400px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .form-group {
@@ -215,20 +216,20 @@
   display: block;
   margin-bottom: 0.75rem;
   color: var(--text-primary);
-  font-size: 1.1rem;
+  font-size: 1.3rem;
   font-weight: 600;
   font-family: var(--font-display);
 }
 
 input, select {
   width: 100%;
-  padding: 1.1rem 1.4rem;
+  padding: 1.4rem 1.8rem;
   background: var(--bg-input);
   border: 2px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 1.2rem;
+  font-size: 1.4rem;
   transition: all 0.3s ease;
   box-sizing: border-box;
 }
@@ -286,9 +287,9 @@ select:focus {
   width: 100%;
   background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
   color: white;
-  padding: 1.4rem;
+  padding: 1.8rem;
   border-radius: var(--radius-md);
-  font-size: 1.3rem;
+  font-size: 1.6rem;
   font-weight: 700;
   margin-top: 1.5rem;
   transition: all 0.3s ease;

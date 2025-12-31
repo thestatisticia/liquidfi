@@ -36,6 +36,7 @@ contract StreamFi {
     event StreamCreated(uint256 indexed streamId, address indexed creator, uint256 hourlyRate, uint256 duration);
     event StreamFunded(uint256 indexed streamId, address indexed creator, uint256 amount);
     event RewardClaimed(uint256 indexed streamId, address indexed recipient, uint256 amount);
+    event UnclaimedFundsWithdrawn(uint256 indexed streamId, address indexed creator, uint256 amount);
 
     constructor(address _token) {
         token = IERC20(_token);
@@ -275,6 +276,68 @@ contract StreamFi {
             return stream.hourlyRate;
         }
         return rate;
+    }
+
+    /**
+     * @dev Calculate total unclaimed funds for a stream after it has ended
+     * This calculates funds that recipients can still claim (they earned but haven't claimed)
+     * @param streamId ID of the stream
+     * @return Total amount of unclaimed funds that recipients can still claim
+     */
+    function getUnclaimedFunds(uint256 streamId) public view returns (uint256) {
+        Stream memory stream = streams[streamId];
+        require(stream.id != 0, "Stream does not exist");
+        require(block.timestamp >= stream.endTime, "Stream has not ended yet");
+        
+        // Calculate total amount that all recipients can still claim
+        uint256 totalClaimable = 0;
+        for (uint256 i = 0; i < stream.recipients.length; i++) {
+            address recipient = stream.recipients[i];
+            // Calculate what this recipient can still claim
+            // After stream ends, they should have earned their full allocation
+            uint256 recipientRate = recipientHourlyRates[streamId][recipient];
+            if (recipientRate == 0) {
+                recipientRate = stream.hourlyRate;
+            }
+            uint256 fullEarned = recipientRate * stream.duration;
+            uint256 claimed = claimedAmounts[streamId][recipient];
+            if (fullEarned > claimed) {
+                totalClaimable += (fullEarned - claimed);
+            }
+        }
+        
+        return totalClaimable;
+    }
+
+    /**
+     * @dev Withdraw unclaimed funds after stream has ended (only creator)
+     * This allows the creator to withdraw funds that recipients haven't claimed.
+     * After withdrawal, the stream is marked as inactive and recipients can no longer claim.
+     * @param streamId ID of the stream
+     */
+    function withdrawUnclaimedFunds(uint256 streamId) external {
+        Stream storage stream = streams[streamId];
+        require(stream.id != 0, "Stream does not exist");
+        require(stream.creator == msg.sender, "Only creator can withdraw");
+        require(block.timestamp >= stream.endTime, "Stream has not ended yet");
+        require(stream.isActive, "Stream already closed");
+        
+        // Calculate remaining funds in the contract for this stream
+        // Remaining = total funded - total distributed
+        uint256 remaining = stream.totalFunded - stream.totalDistributed;
+        
+        require(remaining > 0, "No unclaimed funds");
+        
+        // Mark stream as inactive to prevent further claims
+        stream.isActive = false;
+        
+        // Transfer remaining unclaimed funds to creator
+        require(
+            token.transfer(stream.creator, remaining),
+            "Transfer failed"
+        );
+        
+        emit UnclaimedFundsWithdrawn(streamId, stream.creator, remaining);
     }
 }
 

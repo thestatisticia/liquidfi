@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ethers } from 'ethers';
 import { useToken } from '../hooks/useToken';
 import { TOKEN_CONFIG, ERC20_ABI } from '../config/tokens';
+import OnRampOffRamp from './OnRampOffRamp';
+import AdminPanel from './AdminPanel';
 import './StreamingPaymentDapp.css';
 import {
   Chart as ChartJS,
@@ -36,11 +38,14 @@ const STREAMFI_ABI = [
   'function calculateReward(uint256 streamId, address recipient) external view returns (uint256)',
   'function getStream(uint256 streamId) external view returns (address creator, uint256 hourlyRate, uint256 duration, uint256 startTime, uint256 endTime, address[] recipients, uint256 totalFunded, uint256 totalDistributed, bool isActive)',
   'function getRecipientHourlyRate(uint256 streamId, address recipient) external view returns (uint256)',
+  'function withdrawUnclaimedFunds(uint256 streamId) external',
+  'function getUnclaimedFunds(uint256 streamId) external view returns (uint256)',
   'function streamCount() external view returns (uint256)',
   'function token() external view returns (address)',
   'event StreamCreated(uint256 indexed streamId, address indexed creator, uint256 hourlyRate, uint256 duration)',
   'event StreamFunded(uint256 indexed streamId, address indexed creator, uint256 amount)',
-  'event RewardClaimed(uint256 indexed streamId, address indexed recipient, uint256 amount)'
+  'event RewardClaimed(uint256 indexed streamId, address indexed recipient, uint256 amount)',
+  'event UnclaimedFundsWithdrawn(uint256 indexed streamId, address indexed creator, uint256 amount)'
 ];
 
 function StreamFiDapp({ defaultTab = 'create' }) {
@@ -52,6 +57,10 @@ function StreamFiDapp({ defaultTab = 'create' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
+  // Check if user is admin
+  const ADMIN_ADDRESS = '0x12214E5538915d17394f2d2F0c3733e9a32e61c1';
+  const isAdmin = account && account.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+
   // Determine active tab from route
   const getActiveTabFromRoute = () => {
     const path = location.pathname;
@@ -59,6 +68,8 @@ function StreamFiDapp({ defaultTab = 'create' }) {
     if (path === '/streams') return 'my-streams';
     if (path === '/claim') return 'claim';
     if (path === '/analytics') return 'analytics';
+    if (path === '/buy-sell') return 'buy-sell';
+    if (path === '/admin') return 'admin';
     return defaultTab;
   };
   
@@ -76,7 +87,9 @@ function StreamFiDapp({ defaultTab = 'create' }) {
       'create': '/create',
       'my-streams': '/streams',
       'claim': '/claim',
-      'analytics': '/analytics'
+      'analytics': '/analytics',
+      'buy-sell': '/buy-sell',
+      'admin': '/admin'
     };
     navigate(routes[tab] || '/');
   };
@@ -1470,6 +1483,75 @@ function StreamFiDapp({ defaultTab = 'create' }) {
     }
   };
 
+  const handleWithdrawUnclaimedFunds = async (streamId) => {
+    if (!isConnected || !account) {
+      setError('Please connect your wallet');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      // Check if stream has ended
+      const stream = await streamFiContract.getStream(streamId);
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (currentTime < Number(stream.endTime)) {
+        throw new Error('Stream has not ended yet');
+      }
+
+      if (!stream.isActive) {
+        throw new Error('Stream is already closed');
+      }
+
+      // Check if user is the creator
+      if (stream.creator.toLowerCase() !== account.toLowerCase()) {
+        throw new Error('Only the stream creator can withdraw unclaimed funds');
+      }
+
+      let gasEstimate;
+      try {
+        gasEstimate = await streamFiContract.withdrawUnclaimedFunds.estimateGas(streamId);
+        console.log('Gas estimate:', gasEstimate.toString());
+      } catch (estimateError) {
+        console.error('Gas estimation failed:', estimateError);
+        throw new Error(estimateError.reason || 'No unclaimed funds to withdraw or transaction would fail.');
+      }
+
+      const gasLimit = gasEstimate + (gasEstimate / 3n);
+      const tx = await streamFiContract.withdrawUnclaimedFunds(streamId, {
+        gasLimit: gasLimit
+      });
+      console.log('Withdraw unclaimed funds transaction:', tx.hash);
+
+      const receipt = await Promise.race([
+        tx.wait(1),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Transaction timeout')), 120000)
+        )
+      ]);
+
+      await loadStreams();
+      alert('Unclaimed funds withdrawn successfully!');
+    } catch (err) {
+      console.error('Error withdrawing unclaimed funds:', err);
+      let errorMessage = 'Failed to withdraw unclaimed funds';
+
+      if (err.code === 'ACTION_REJECTED' || err.code === 4001 || err?.info?.error?.code === 4001 || err.message?.includes('user rejected')) {
+        errorMessage = 'Transaction cancelled by user';
+      } else if (err.reason) {
+        errorMessage = err.reason;
+      } else if (err.message) {
+        errorMessage = err.message;
+      } else if (err.code === 'UNKNOWN_ERROR' || err.code === -32603) {
+        errorMessage = 'RPC error. The transaction may have succeeded - please check your balance and refresh.';
+      }
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isConnected) {
     return (
       <div className="payment-dapp">
@@ -1528,6 +1610,21 @@ function StreamFiDapp({ defaultTab = 'create' }) {
               >
                 Analytics
               </button>
+              <button
+                className={`nav-item ${activeTab === 'buy-sell' ? 'active' : ''}`}
+                onClick={() => handleTabChange('buy-sell')}
+              >
+                Buy/Sell
+              </button>
+              {isAdmin && (
+                <button
+                  className={`nav-item ${activeTab === 'admin' ? 'active' : ''}`}
+                  onClick={() => handleTabChange('admin')}
+                  style={{ backgroundColor: '#28a745', color: 'white' }}
+                >
+                  🔐 Admin
+                </button>
+              )}
             </nav>
           )}
           
@@ -1658,7 +1755,7 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                   alignItems: 'center', 
                   gap: '0.5rem',
                   marginBottom: '0.75rem',
-                  fontSize: '1.1rem',
+                  fontSize: '1.4rem',
                   fontWeight: '600',
                   color: 'var(--text-primary)'
                 }}>
@@ -1672,7 +1769,7 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                   placeholder="e.g., 10 TST/hour"
                   step="0.01"
                   min="0"
-                  style={{ fontSize: '1.1rem' }}
+                  style={{ fontSize: '1.4rem', padding: '1.4rem 1.8rem' }}
                 />
                 <small style={{ 
                   color: 'var(--text-muted)', 
@@ -1696,7 +1793,7 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                   alignItems: 'center', 
                   gap: '0.5rem',
                   marginBottom: '0.75rem',
-                  fontSize: '1.1rem',
+                  fontSize: '1.4rem',
                   fontWeight: '600',
                   color: 'var(--text-primary)'
                 }}>
@@ -1708,8 +1805,8 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                   onChange={(e) => handleDurationTypeChange(e.target.value)}
                   style={{ 
                     marginBottom: '0.75rem', 
-                    padding: '1rem 1.25rem', 
-                    fontSize: '1.1rem',
+                    padding: '1.4rem 1.8rem', 
+                    fontSize: '1.4rem',
                     background: 'var(--bg-input)',
                     border: '2px solid var(--border)',
                     borderRadius: 'var(--radius-md)',
@@ -1732,8 +1829,8 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                     required
                     style={{ 
                       width: '100%', 
-                      padding: '1rem 1.25rem',
-                      fontSize: '1.1rem'
+                      padding: '1.4rem 1.8rem',
+                      fontSize: '1.4rem'
                     }}
                   />
                 ) : (
@@ -1743,8 +1840,8 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                     disabled
                     style={{ 
                       width: '100%', 
-                      padding: '1rem 1.25rem',
-                      fontSize: '1.1rem',
+                      padding: '1.4rem 1.8rem',
+                      fontSize: '1.4rem',
                       background: 'var(--bg-input)', 
                       border: '2px solid var(--border)', 
                       cursor: 'not-allowed', 
@@ -1766,7 +1863,7 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                     display: 'flex', 
                     alignItems: 'center', 
                     gap: '0.5rem',
-                    fontSize: '1.1rem',
+                    fontSize: '1.4rem',
                     fontWeight: '600',
                     color: 'var(--text-primary)',
                     margin: 0
@@ -2434,12 +2531,36 @@ function StreamFiDapp({ defaultTab = 'create' }) {
                           <span className="label">Total Distributed:</span>
                           <span className="value">{parseFloat(stream.totalDistributed).toFixed(4)} TST</span>
                         </div>
-                        {!stream.isActive && stream.endTime > 0 && Math.floor(Date.now() / 1000) >= stream.endTime && remaining > 0.0001 && (
+                        {stream.isActive && stream.endTime > 0 && Math.floor(Date.now() / 1000) >= stream.endTime && remaining > 0.0001 && (
                           <div className="detail" style={{ padding: '10px', backgroundColor: 'rgba(255, 193, 7, 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--warning)' }}>
                             <span className="label" style={{ color: 'var(--warning)', fontWeight: 'bold' }}>Unclaimed Funds:</span>
                             <span className="value" style={{ color: 'var(--warning)', fontWeight: 'bold' }}>{remaining.toFixed(4)} TST</span>
+                            <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '5px', marginBottom: stream.isCreator ? '10px' : '0' }}>
+                              The stream has ended. Recipients can still claim their accumulated rewards. As the stream creator, you can withdraw any unclaimed funds back to your wallet.
+                            </div>
+                            {stream.isCreator && (
+                              <button
+                                onClick={() => handleWithdrawUnclaimedFunds(stream.id)}
+                                disabled={loading}
+                                className="action-btn"
+                                style={{ 
+                                  marginTop: '10px',
+                                  backgroundColor: 'var(--warning)',
+                                  color: 'white',
+                                  width: '100%'
+                                }}
+                              >
+                                {loading ? 'Processing...' : 'Withdraw Unclaimed Funds'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {!stream.isActive && stream.endTime > 0 && Math.floor(Date.now() / 1000) >= stream.endTime && remaining > 0.0001 && (
+                          <div className="detail" style={{ padding: '10px', backgroundColor: 'rgba(76, 175, 80, 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--success)' }}>
+                            <span className="label" style={{ color: 'var(--success)', fontWeight: 'bold' }}>Status:</span>
+                            <span className="value" style={{ color: 'var(--success)', fontWeight: 'bold' }}>Unclaimed funds withdrawn</span>
                             <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '5px' }}>
-                              These funds remain in the contract. Recipients can still claim their accumulated rewards, but any unclaimed funds after the stream ends will remain locked in the contract.
+                              Unclaimed funds have been withdrawn by the creator. Recipients can no longer claim from this stream.
                             </div>
                           </div>
                         )}
@@ -2943,6 +3064,14 @@ function StreamFiDapp({ defaultTab = 'create' }) {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'buy-sell' && (
+          <OnRampOffRamp />
+        )}
+
+        {activeTab === 'admin' && (
+          <AdminPanel />
         )}
       </div>
 
